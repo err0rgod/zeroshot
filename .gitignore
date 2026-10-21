@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+recordings/
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.json
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
