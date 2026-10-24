@@ -1,9 +1,13 @@
+import ctypes
 import os
 import subprocess
 import webbrowser
 import winsound
+from pathlib import Path
 
-# Map common spoken application names to their Windows executable or URI
+projectRoot = str(Path(__file__).resolve().parent.parent)
+
+# Map common spoken application names to executable or target command
 appExecutableMap = {
     "chrome": "chrome",
     "google chrome": "chrome",
@@ -21,32 +25,54 @@ appExecutableMap = {
     "explorer": "explorer",
     "file explorer": "explorer",
     "files": "explorer",
-    "task manager": "taskmgr",
+    "task manager": "taskmgr.exe",
+    "taskmanager": "taskmgr.exe",
+    "taskmgr": "taskmgr.exe",
+    "tasks": "taskmgr.exe",
     "spotify": "spotify",
     "paint": "mspaint",
+    "claude": "claude",
+    "claude code": "claude",
+    "agy": "agy",
+    "antigravity": "agy",
 }
 
 
-def openApplication(appName: str) -> str:
-    """Launch a desktop application on Windows ONLY when the user explicitly commands to 'open', 'launch', or 'start' an app.
+def launchApplication(appName: str) -> str:
+    """Launch or open desktop applications and developer tools on Windows (e.g. task manager, chrome, notepad, calculator, claude, agy, terminal, explorer).
     Args:
-        appName: Common name of the program to launch (e.g. chrome, notepad, calculator, vscode, terminal, explorer).
+        appName: Common name of the application to launch (e.g. task manager, chrome, notepad, calc, claude, agy).
     """
     cleanName = appName.strip().lower()
-    executable = appExecutableMap.get(cleanName, cleanName)
+    target = appExecutableMap.get(cleanName, cleanName)
 
     try:
-        subprocess.Popen(f"start {executable}", shell=True)
+        # 1. AI CLI tools need an interactive terminal session
+        if target in ["claude", "agy"]:
+            cmdString = f'start cmd /k "cd /d {projectRoot} && {target}"'
+            subprocess.Popen(cmdString, shell=True)
+            winsound.MessageBeep(winsound.MB_OK)
+            return f"[SUCCESS] Spawned {target.upper()} terminal session in workspace."
+
+        # 2. Windows System apps (like Task Manager): use ShellExecuteW to bypass UAC redirection
+        res = ctypes.windll.shell32.ShellExecuteW(None, "open", target, None, None, 1)
+        if res > 32:
+            winsound.MessageBeep(winsound.MB_OK)
+            return f"[SUCCESS] Opened application: {appName}"
+
+        # 3. Fallback to shell start
+        subprocess.Popen(f"start {target}", shell=True)
         winsound.MessageBeep(winsound.MB_OK)
         return f"[SUCCESS] Opened application: {appName}"
+
     except Exception as error:
         return f"[ERROR] Failed to open {appName}: {error}"
 
 
 def closeApplication(appName: str) -> str:
-    """Terminate an active desktop application ONLY when user explicitly commands to 'close', 'kill', or 'exit' an app.
+    """Close or terminate an active desktop application on Windows.
     Args:
-        appName: Name of the application to close (e.g. notepad, chrome, calc).
+        appName: Name of the application to close (e.g. notepad, chrome, calc, task manager).
     """
     cleanName = appName.strip().lower()
     targetName = appExecutableMap.get(cleanName, cleanName)
@@ -63,7 +89,8 @@ def closeApplication(appName: str) -> str:
             winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
             return f"[SUCCESS] Closed application: {appName}"
         else:
-            return f"[WARNING] Could not close {appName} (process not found)."
+            reason = result.stderr.strip() or "Process not found."
+            return f"[WARNING] Could not close {appName} ({reason})."
     except Exception as error:
         return f"[ERROR] Failed to terminate {appName}: {error}"
 
@@ -83,7 +110,7 @@ def searchWeb(query: str) -> str:
 
 
 def openUrl(url: str) -> str:
-    """Open a specific website URL ONLY when user explicitly commands to visit, browse to, or open a link/website.
+    """Open a website URL in the browser ONLY when the prompt includes a web address or domain (e.g. .com, .org, youtube, github, twitter). Never call for desktop applications.
     Args:
         url: Full web address or domain (e.g. https://github.com, youtube.com).
     """
@@ -100,7 +127,7 @@ def openUrl(url: str) -> str:
 
 # Export list of registered tool functions for Cactus Needle 3
 registeredTools = [
-    openApplication,
+    launchApplication,
     closeApplication,
     searchWeb,
     openUrl,

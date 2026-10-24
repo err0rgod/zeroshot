@@ -189,6 +189,5 @@ developerToolsList = [
     gitPush,
     gitDiff,
     gitCreateBranch,
-    launchCodingAgent,
     runTests,
 ]
