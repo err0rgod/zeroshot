@@ -84,12 +84,38 @@ class CameraOverlay:
         self.root.bind("<Key-s>", lambda event: self.toggleMode())
         self.root.bind("<Key-S>", lambda event: self.toggleMode())
 
-        # Start camera capture
+        # Start camera capture with HD resolution request
         self.cap = cv2.VideoCapture(0)
+        if self.cap.isOpened():
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
         self.isRunning = True
 
         # Kick off render loop
         self.updateFrame()
+
+    def cropAndResizeToCover(self, frame, targetW, targetH):
+        """
+        Preserve aspect ratio by center-cropping the video frame to match target dimensions.
+        Completely eliminates stretching, squishing, and distortion.
+        """
+        frameH, frameW = frame.shape[:2]
+        targetRatio = targetW / targetH
+        frameRatio = frameW / frameH
+
+        if frameRatio > targetRatio:
+            # Source is wider than target: crop left & right margins
+            newW = int(frameH * targetRatio)
+            startX = (frameW - newW) // 2
+            cropped = frame[:, startX:startX + newW]
+        else:
+            # Source is taller than target: crop top & bottom margins
+            newH = int(frameW / targetRatio)
+            startY = (frameH - newH) // 2
+            cropped = frame[startY:startY + newH, :]
+
+        return cv2.resize(cropped, (targetW, targetH), interpolation=cv2.INTER_LINEAR)
 
     def applyModeGeometry(self):
         """Update window geometry and position based on current mode."""
@@ -145,26 +171,28 @@ class CameraOverlay:
             self.root.after_idle(callback)
 
     def updateFrame(self):
-        """Capture webcam frame and render to Tkinter canvas."""
+        """Capture webcam frame and render to Tkinter canvas with aspect-ratio preservation."""
         if not self.isRunning:
             return
 
         if self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
             if ret:
-                # Mirror horizontally for natural webcam feel
+                # Mirror horizontally for natural webcam mirror feel
                 frame = cv2.flip(frame, 1)
 
                 # Determine target frame dimensions based on mode
                 if self.currentMode == "full":
                     targetW = self.screenWidth
-                    targetH = self.screenHeight - 85  # Deduct HUD height
+                    targetH = max(100, self.screenHeight - 85)
                 else:
                     targetW = 420
-                    targetH = 240
+                    targetH = 235
 
-                resized = cv2.resize(frame, (targetW, targetH), interpolation=cv2.INTER_AREA)
-                rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+                # Aspect-ratio preserved center-crop & resize
+                fittedFrame = self.cropAndResizeToCover(frame, targetW, targetH)
+
+                rgb = cv2.cvtColor(fittedFrame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(rgb)
                 imgTk = ImageTk.PhotoImage(image=img)
 
