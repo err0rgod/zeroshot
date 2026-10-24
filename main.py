@@ -28,6 +28,7 @@ def handleSpeechUtterance(audioArray, sampleRate):
 
     # Route command through Cactus Needle 3 Edge Router
     routeAndExecute(transcriptText)
+    print("[READY] Listening...\n", flush=True)
 
 
 def main():

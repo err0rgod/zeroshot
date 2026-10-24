@@ -61,8 +61,7 @@ def listenForSpeech(onUtterance=None):
     workerPool = ThreadPoolExecutor(max_workers=2)
 
     def audioCallback(inData, frameCount, timeInfo, status):
-        if status:
-            print(f"[AUDIO WARNING]: {status}")
+        # Audio callback thread - avoid printing in callback to prevent terminal flooding
         audioQueue.put(inData[:, 0].copy())
 
     print("[VAD] Initializing microphone...")
@@ -75,7 +74,9 @@ def listenForSpeech(onUtterance=None):
             blocksize=frameSize,
             callback=audioCallback,
         ):
-            print("[VAD] Microphone online. Listening... (Press Ctrl+C to stop)\n")
+            print("[VAD] Microphone online. Ready and listening...\n")
+
+            wasRecording = False
 
             while True:
                 audioChunk = audioQueue.get()
@@ -94,6 +95,7 @@ def listenForSpeech(onUtterance=None):
                         isRecording = True
                         speechBuffer = list(prePadBuffer)
                         silenceCounter = 0
+                        print("\n[VOICE DETECTED] Recording...", flush=True)
 
                     speechBuffer.append(audioChunk)
                     silenceCounter = 0
@@ -113,8 +115,8 @@ def listenForSpeech(onUtterance=None):
                                 durationSec = len(completeAudio) / sampleRate
 
                                 print(
-                                    f"\n[UTTERANCE #{utteranceCount} CAPTURED] "
-                                    f"Duration: {durationSec:.2f}s | Samples: {len(completeAudio)}"
+                                    f"[VOICE COMPLETE] Captured {durationSec:.2f}s audio. Processing...",
+                                    flush=True,
                                 )
 
                                 if onUtterance:
@@ -123,16 +125,6 @@ def listenForSpeech(onUtterance=None):
                             speechBuffer = []
                     else:
                         prePadBuffer.append(audioChunk)
-
-                # Live Visual ASCII Meter
-                barLength = int(rms * 250)
-                visualBar = "█" * min(barLength, 35)
-                recordIndicator = "[RECORDING]" if isRecording else "[WAITING]  "
-
-                print(
-                    f"RMS: {rms:.4f} | Thresh: {speechThreshold:.4f} | {recordIndicator} | {visualBar:<35}",
-                    end="\r",
-                )
 
     except KeyboardInterrupt:
         workerPool.shutdown(wait=False)
