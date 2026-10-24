@@ -1,3 +1,4 @@
+import queue
 import threading
 import time
 import tkinter as tk
@@ -24,7 +25,10 @@ class CameraOverlay:
 
         self.cap = None
         self.isRunning = False
-        self.lock = threading.Lock()
+
+        # Thread-safe queues for cross-thread GUI updates
+        self.hudQueue = queue.Queue()
+        self.modeQueue = queue.Queue()
 
     def initializeUi(self):
         """Construct the Tkinter window and HUD elements."""
@@ -131,49 +135,69 @@ class CameraOverlay:
             self.root.geometry(f"{pipWidth}x{pipHeight}+{posX}+{posY}")
 
     def toggleMode(self, targetMode=None):
-        """Thread-safe toggle between 'full' and 'split' mode."""
-        def callback():
-            if targetMode:
-                self.currentMode = targetMode
-            else:
-                self.currentMode = "split" if self.currentMode == "full" else "full"
-            self.applyModeGeometry()
-            print(f"[CAMERA OVERLAY] View mode switched to: {self.currentMode.upper()}")
-
-        if self.root:
-            self.root.after_idle(callback)
+        """Thread-safe request to toggle between 'full' and 'split' mode."""
+        self.modeQueue.put(targetMode or "toggle")
 
     def updateHud(self, status=None, transcript=None, action=None):
-        """Thread-safe update of the 3-line HUD metrics."""
-        def callback():
-            if status is not None:
-                self.statusText = status
-                # Color code status
-                color = "#00e676"  # green
-                if "RECORDING" in status:
-                    color = "#ff1744"  # red
-                elif "PROCESSING" in status or "ROUTING" in status:
-                    color = "#ffd600"  # yellow
-                self.statusLabel.config(text=f"STATUS: {status}", fg=color)
+        """Thread-safe request to update the 3-line HUD metrics via queue."""
+        self.hudQueue.put({
+            "status": status,
+            "transcript": transcript,
+            "action": action,
+        })
 
-            if transcript is not None:
-                self.transcriptText = transcript
-                # Truncate if exceptionally long
-                display = transcript if len(transcript) <= 65 else transcript[:62] + "..."
-                self.transcriptLabel.config(text=f"TRANSCRIPT: \"{display}\"")
+    def processPendingGuiUpdates(self):
+        """Process all queued thread-safe commands inside the Tkinter UI loop."""
+        # 1. Process mode changes
+        while not self.modeQueue.empty():
+            try:
+                target = self.modeQueue.get_nowait()
+                if target == "toggle":
+                    self.currentMode = "split" if self.currentMode == "full" else "full"
+                else:
+                    self.currentMode = target
+                self.applyModeGeometry()
+                print(f"[CAMERA OVERLAY] View mode switched to: {self.currentMode.upper()}")
+            except queue.Empty:
+                break
 
-            if action is not None:
-                self.actionText = action
-                display = action if len(action) <= 65 else action[:62] + "..."
-                self.actionLabel.config(text=f"ACTION: {display}")
+        # 2. Process HUD metric updates
+        while not self.hudQueue.empty():
+            try:
+                update = self.hudQueue.get_nowait()
+                status = update.get("status")
+                transcript = update.get("transcript")
+                action = update.get("action")
 
-        if self.root:
-            self.root.after_idle(callback)
+                if status is not None:
+                    self.statusText = status
+                    color = "#00e676"  # green
+                    if "RECORDING" in status:
+                        color = "#ff1744"  # red
+                    elif "PROCESSING" in status or "ROUTING" in status:
+                        color = "#ffd600"  # yellow
+                    self.statusLabel.config(text=f"STATUS: {status}", fg=color)
+
+                if transcript is not None:
+                    self.transcriptText = transcript
+                    display = transcript if len(transcript) <= 65 else transcript[:62] + "..."
+                    self.transcriptLabel.config(text=f"TRANSCRIPT: \"{display}\"")
+
+                if action is not None:
+                    self.actionText = action
+                    display = action if len(action) <= 65 else action[:62] + "..."
+                    self.actionLabel.config(text=f"ACTION: {display}")
+
+            except queue.Empty:
+                break
 
     def updateFrame(self):
         """Capture webcam frame and render to Tkinter canvas with aspect-ratio preservation."""
         if not self.isRunning:
             return
+
+        # Handle any pending thread-safe GUI updates
+        self.processPendingGuiUpdates()
 
         if self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
