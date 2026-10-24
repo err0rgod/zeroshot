@@ -16,8 +16,6 @@ load_dotenv(projectRoot / ".env")
 enableTranscription = False
 
 from VAD.micProcess import listenForSpeech
-from STT.sttClient import transcribeAudio
-from NEEDLE.router import routeAndExecute
 from CAMERA.cameraOverlay import startCameraOverlayThread, updateCameraHud
 
 
@@ -36,6 +34,9 @@ def handleSpeechUtterance(audioArray, sampleRate):
         )
         print("[READY] Listening...\n", flush=True)
         return
+
+    from STT.sttClient import transcribeAudio
+    from NEEDLE.router import routeAndExecute
 
     transcriptText = transcribeAudio(audioArray, sampleRate)
 

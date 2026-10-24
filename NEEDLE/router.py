@@ -13,10 +13,18 @@ from TOOLS import allRegisteredTools
 # Map tool names to their callable functions
 toolMap = {fn.__name__: fn for fn in allRegisteredTools}
 
-# Initialize Cactus Needle 3 with pre-registered tools
-print("[NEEDLE] Pre-loading Edge Tool Router (Generation 3)...")
-needleModel = Needle(tools=allRegisteredTools, generation=3, stateless=True)
-print(f"[NEEDLE] Router ready with {len(allRegisteredTools)} registered developer & OS tools.\n")
+# Cached singleton instance for lazy initialization
+needleModel = None
+
+
+def getNeedleModel():
+    """Lazily load Needle 3 model weights only when tool routing is actually needed."""
+    global needleModel
+    if needleModel is None:
+        print("[NEEDLE] Pre-loading Edge Tool Router (Generation 3)...")
+        needleModel = Needle(tools=allRegisteredTools, generation=3, stateless=True)
+        print(f"[NEEDLE] Router ready with {len(allRegisteredTools)} registered developer & OS tools.\n")
+    return needleModel
 
 
 def routeAndExecute(promptText: str, minConfidence: float = 0.30) -> dict:
@@ -31,7 +39,8 @@ def routeAndExecute(promptText: str, minConfidence: float = 0.30) -> dict:
     startTime = time.perf_counter()
     try:
         # Step 1: Infer intent and tool calls without running them
-        response = needleModel.complete(promptText.strip())
+        model = getNeedleModel()
+        response = model.complete(promptText.strip())
         latencyMs = int((time.perf_counter() - startTime) * 1000)
 
         confidence = response.get("confidence", 0.0)
