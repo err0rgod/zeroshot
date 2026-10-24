@@ -1,3 +1,5 @@
+import ctypes
+import ctypes.wintypes as wt
 import queue
 import threading
 import time
@@ -10,6 +12,28 @@ from PIL import Image, ImageTk
 activeOverlayInstance = None
 
 
+class RECT(ctypes.Structure):
+    _fields_ = [
+        ("left", wt.LONG),
+        ("top", wt.LONG),
+        ("right", wt.LONG),
+        ("bottom", wt.LONG),
+    ]
+
+
+def getScreenWorkArea():
+    """Query usable desktop work area on Windows excluding taskbars."""
+    try:
+        rect = RECT()
+        # SPI_GETWORKAREA = 0x0030
+        res = ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)
+        if res:
+            return rect.left, rect.top, rect.right, rect.bottom
+    except Exception:
+        pass
+    return None
+
+
 class CameraOverlay:
     def __init__(self):
         self.currentMode = "full"  # "full" or "split"
@@ -18,7 +42,9 @@ class CameraOverlay:
         self.actionText = "System ready."
 
         self.root = None
+        self.videoContainer = None
         self.videoLabel = None
+        self.hudPanel = None
         self.statusLabel = None
         self.transcriptLabel = None
         self.actionLabel = None
@@ -40,15 +66,16 @@ class CameraOverlay:
         self.screenWidth = self.root.winfo_screenwidth()
         self.screenHeight = self.root.winfo_screenheight()
 
-        # Video container
-        self.videoContainer = tk.Frame(self.root, bg="#0f111a")
-        self.videoContainer.pack(fill=tk.BOTH, expand=True)
-
-        self.videoLabel = tk.Label(self.videoContainer, bg="#000000")
-        self.videoLabel.pack(fill=tk.BOTH, expand=True)
-
-        # Bottom HUD Panel (3 live metric lines)
-        self.hudPanel = tk.Frame(self.root, bg="#161925", padx=10, pady=6)
+        # Bottom HUD Panel (Packed FIRST with side=BOTTOM so it is NEVER pushed off screen)
+        self.hudPanel = tk.Frame(
+            self.root,
+            bg="#131620",
+            padx=14,
+            pady=8,
+            highlightthickness=1,
+            highlightbackground="#252a3d",
+            highlightcolor="#252a3d",
+        )
         self.hudPanel.pack(fill=tk.X, side=tk.BOTTOM)
 
         self.statusLabel = tk.Label(
@@ -56,30 +83,37 @@ class CameraOverlay:
             text=f"STATUS: {self.statusText}",
             font=("Consolas", 10, "bold"),
             fg="#00e676",
-            bg="#161925",
+            bg="#131620",
             anchor="w",
         )
-        self.statusLabel.pack(fill=tk.X)
+        self.statusLabel.pack(fill=tk.X, pady=1)
 
         self.transcriptLabel = tk.Label(
             self.hudPanel,
-            text=f"TRANSCRIPT: {self.transcriptText}",
+            text=f"TRANSCRIPT: \"{self.transcriptText}\"",
             font=("Segoe UI", 9),
-            fg="#ffffff",
-            bg="#161925",
+            fg="#e0e6ed",
+            bg="#131620",
             anchor="w",
         )
-        self.transcriptLabel.pack(fill=tk.X)
+        self.transcriptLabel.pack(fill=tk.X, pady=1)
 
         self.actionLabel = tk.Label(
             self.hudPanel,
             text=f"ACTION: {self.actionText}",
             font=("Segoe UI", 9, "italic"),
             fg="#00e5ff",
-            bg="#161925",
+            bg="#131620",
             anchor="w",
         )
-        self.actionLabel.pack(fill=tk.X)
+        self.actionLabel.pack(fill=tk.X, pady=1)
+
+        # Video container (Packed SECOND with expand=True to claim remaining area above HUD)
+        self.videoContainer = tk.Frame(self.root, bg="#000000")
+        self.videoContainer.pack(fill=tk.BOTH, expand=True)
+
+        self.videoLabel = tk.Label(self.videoContainer, bg="#000000")
+        self.videoLabel.pack(fill=tk.BOTH, expand=True)
 
         # Apply initial geometry
         self.applyModeGeometry()
@@ -122,18 +156,63 @@ class CameraOverlay:
 
         return cv2.resize(cropped, (targetW, targetH), interpolation=cv2.INTER_LINEAR)
 
+    def refreshHudLabels(self):
+        """Update and format HUD label texts according to current mode width constraints."""
+        maxChars = 110 if self.currentMode == "full" else 46
+
+        # 1. Status with dynamic color
+        color = "#00e676"  # green
+        if "RECORDING" in self.statusText:
+            color = "#ff1744"  # red
+        elif "PROCESSING" in self.statusText or "ROUTING" in self.statusText:
+            color = "#ffd600"  # yellow
+        self.statusLabel.config(text=f"STATUS: {self.statusText}", fg=color)
+
+        # 2. Transcript with mode-aware truncation
+        displayTranscript = (
+            self.transcriptText
+            if len(self.transcriptText) <= maxChars
+            else self.transcriptText[: maxChars - 3] + "..."
+        )
+        self.transcriptLabel.config(text=f"TRANSCRIPT: \"{displayTranscript}\"")
+
+        # 3. Action with mode-aware truncation
+        displayAction = (
+            self.actionText
+            if len(self.actionText) <= maxChars
+            else self.actionText[: maxChars - 3] + "..."
+        )
+        self.actionLabel.config(text=f"ACTION: {displayAction}")
+
     def applyModeGeometry(self):
         """Update window geometry and position based on current mode."""
         if self.currentMode == "full":
-            # Fullscreen intro mode: covers full screen
-            self.root.geometry(f"{self.screenWidth}x{self.screenHeight}+0+0")
+            # True fullscreen intro mode: covers full screen seamlessly
+            self.root.attributes("-fullscreen", True)
+            self.root.attributes("-topmost", True)
         else:
-            # Split PiP mode: docked in bottom-right corner
-            pipWidth = 420
-            pipHeight = 320
-            posX = self.screenWidth - pipWidth - 25
-            posY = self.screenHeight - pipHeight - 65
+            # Split PiP mode: docked safely in bottom-right corner above taskbar
+            self.root.attributes("-fullscreen", False)
+            self.root.attributes("-topmost", True)
+
+            pipWidth = 460
+            pipHeight = 340
+
+            workArea = getScreenWorkArea()
+            if workArea:
+                _, _, workRight, workBottom = workArea
+                posX = workRight - pipWidth - 25
+                posY = workBottom - pipHeight - 55
+            else:
+                posX = self.screenWidth - pipWidth - 25
+                posY = self.screenHeight - pipHeight - 85
+
+            posX = max(0, posX)
+            posY = max(0, posY)
+
             self.root.geometry(f"{pipWidth}x{pipHeight}+{posX}+{posY}")
+
+        self.refreshHudLabels()
 
     def toggleMode(self, targetMode=None):
         """Thread-safe request to toggle between 'full' and 'split' mode."""
@@ -163,6 +242,7 @@ class CameraOverlay:
                 break
 
         # 2. Process HUD metric updates
+        hasHudUpdate = False
         while not self.hudQueue.empty():
             try:
                 update = self.hudQueue.get_nowait()
@@ -172,25 +252,21 @@ class CameraOverlay:
 
                 if status is not None:
                     self.statusText = status
-                    color = "#00e676"  # green
-                    if "RECORDING" in status:
-                        color = "#ff1744"  # red
-                    elif "PROCESSING" in status or "ROUTING" in status:
-                        color = "#ffd600"  # yellow
-                    self.statusLabel.config(text=f"STATUS: {status}", fg=color)
+                    hasHudUpdate = True
 
                 if transcript is not None:
                     self.transcriptText = transcript
-                    display = transcript if len(transcript) <= 65 else transcript[:62] + "..."
-                    self.transcriptLabel.config(text=f"TRANSCRIPT: \"{display}\"")
+                    hasHudUpdate = True
 
                 if action is not None:
                     self.actionText = action
-                    display = action if len(action) <= 65 else action[:62] + "..."
-                    self.actionLabel.config(text=f"ACTION: {display}")
+                    hasHudUpdate = True
 
             except queue.Empty:
                 break
+
+        if hasHudUpdate:
+            self.refreshHudLabels()
 
     def updateFrame(self):
         """Capture webcam frame and render to Tkinter canvas with aspect-ratio preservation."""
@@ -211,8 +287,8 @@ class CameraOverlay:
                     targetW = 960
                     targetH = 540
                 else:
-                    targetW = 420
-                    targetH = 235
+                    targetW = 460
+                    targetH = 255
 
                 # Aspect-ratio preserved center-crop & resize
                 fittedFrame = self.cropAndResizeToCover(frame, targetW, targetH)
