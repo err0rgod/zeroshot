@@ -45,7 +45,10 @@ class CameraOverlay:
         self.videoContainer = None
         self.videoLabel = None
         self.hudPanel = None
+        self.hudTopRow = None
         self.statusLabel = None
+        self.toggleButton = None
+        self.exitButton = None
         self.transcriptLabel = None
         self.actionLabel = None
 
@@ -63,6 +66,9 @@ class CameraOverlay:
         self.root.configure(bg="#0f111a")
         self.root.wm_attributes("-topmost", True)
 
+        # Handle window close [X] cleanly
+        self.root.protocol("WM_DELETE_WINDOW", self.onCloseWindow)
+
         self.screenWidth = self.root.winfo_screenwidth()
         self.screenHeight = self.root.winfo_screenheight()
 
@@ -78,15 +84,51 @@ class CameraOverlay:
         )
         self.hudPanel.pack(fill=tk.X, side=tk.BOTTOM)
 
+        # Top row of HUD: Status indicator on left, interactive controls on right
+        self.hudTopRow = tk.Frame(self.hudPanel, bg="#131620")
+        self.hudTopRow.pack(fill=tk.X, pady=(0, 2))
+
         self.statusLabel = tk.Label(
-            self.hudPanel,
+            self.hudTopRow,
             text=f"STATUS: {self.statusText}",
             font=("Consolas", 10, "bold"),
             fg="#00e676",
             bg="#131620",
             anchor="w",
         )
-        self.statusLabel.pack(fill=tk.X, pady=1)
+        self.statusLabel.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.exitButton = tk.Button(
+            self.hudTopRow,
+            text="Exit",
+            font=("Segoe UI", 8, "bold"),
+            fg="#ff5252",
+            bg="#2a161f",
+            activebackground="#ff1744",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=8,
+            pady=1,
+            cursor="hand2",
+            command=self.onCloseWindow,
+        )
+        self.exitButton.pack(side=tk.RIGHT)
+
+        self.toggleButton = tk.Button(
+            self.hudTopRow,
+            text="Split [S]",
+            font=("Segoe UI", 8, "bold"),
+            fg="#ffffff",
+            bg="#252a3d",
+            activebackground="#3b425f",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=8,
+            pady=1,
+            cursor="hand2",
+            command=self.toggleMode,
+        )
+        self.toggleButton.pack(side=tk.RIGHT, padx=(0, 6))
 
         self.transcriptLabel = tk.Label(
             self.hudPanel,
@@ -118,9 +160,12 @@ class CameraOverlay:
         # Apply initial geometry
         self.applyModeGeometry()
 
-        # Bind manual hotkey toggle: press 's' on the window to toggle split/full
+        # Keyboard hotkeys: 'S' toggles view mode, 'Esc' or 'Q' exits cleanly
         self.root.bind("<Key-s>", lambda event: self.toggleMode())
         self.root.bind("<Key-S>", lambda event: self.toggleMode())
+        self.root.bind("<Escape>", lambda event: self.onCloseWindow())
+        self.root.bind("<Key-q>", lambda event: self.onCloseWindow())
+        self.root.bind("<Key-Q>", lambda event: self.onCloseWindow())
 
         # Start camera capture with HD resolution request
         self.cap = cv2.VideoCapture(0)
@@ -187,12 +232,16 @@ class CameraOverlay:
     def applyModeGeometry(self):
         """Update window geometry and position based on current mode."""
         if self.currentMode == "full":
-            # True fullscreen intro mode: covers full screen seamlessly
-            self.root.attributes("-fullscreen", True)
+            # Maximized window: full desktop view while keeping titlebar, close [X] and taskbar
+            self.root.attributes("-fullscreen", False)
+            self.root.state("zoomed")
             self.root.attributes("-topmost", True)
+            if self.toggleButton:
+                self.toggleButton.config(text="Split [S]")
         else:
             # Split PiP mode: docked safely in bottom-right corner above taskbar
             self.root.attributes("-fullscreen", False)
+            self.root.state("normal")
             self.root.attributes("-topmost", True)
 
             pipWidth = 460
@@ -211,8 +260,22 @@ class CameraOverlay:
             posY = max(0, posY)
 
             self.root.geometry(f"{pipWidth}x{pipHeight}+{posX}+{posY}")
+            if self.toggleButton:
+                self.toggleButton.config(text="Full [S]")
 
         self.refreshHudLabels()
+
+    def onCloseWindow(self):
+        """Cleanly terminate camera hardware, UI, and harness process."""
+        print("\n[CAMERA] Close request confirmed. Terminating Voice Action Harness cleanly...")
+        self.cleanup()
+        if self.root:
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+        import os
+        os._exit(0)
 
     def toggleMode(self, targetMode=None):
         """Thread-safe request to toggle between 'full' and 'split' mode."""
