@@ -1,4 +1,5 @@
 .venv/
+.venv-*/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -10,7 +11,12 @@ recordings/
 *.m4a
 *.flac
 *.json
+*.jsonl
+*.cact
+*.safetensors
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+.env
+*.env
