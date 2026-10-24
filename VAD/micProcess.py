@@ -49,7 +49,7 @@ def listenForSpeech(onUtterance=None):
     prePadFrames = int(prePadDurationMs / frameDurationMs)
     prePadBuffer = deque(maxlen=prePadFrames)
 
-    silenceHangoverMs = 750
+    silenceHangoverMs = 480
     silenceHangoverFrames = int(silenceHangoverMs / frameDurationMs)
 
     minUtteranceFrames = int(400 / frameDurationMs)

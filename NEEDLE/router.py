@@ -9,6 +9,7 @@ if str(projectRoot) not in sys.path:
     sys.path.append(str(projectRoot))
 
 from TOOLS import allRegisteredTools
+from TOOLS.windowsTools import appExecutableMap
 
 # Map tool names to their callable functions
 toolMap = {fn.__name__: fn for fn in allRegisteredTools}
@@ -31,10 +32,31 @@ def routeAndExecute(promptText: str, minConfidence: float = 0.25) -> dict:
     """
     Route natural language command through Needle 3.
     Uses Needle's confidence head and intent guards to automatically ignore
-    casual chatter, video intros, or irrelevant speech (confidence < 0.30).
+    casual chatter, video intros, or irrelevant speech (confidence < 0.25).
     """
     if not promptText or not promptText.strip():
         return {}
+
+    cleanPrompt = promptText.strip().lower()
+
+    # Instant exit command check (no model latency, 0ms termination)
+    exitPhrases = {
+        "exit", "quit", "stop", "shutdown", "terminate", "bye", "goodbye",
+        "exit assistant", "close assistant", "stop assistant", "quit assistant", "shutdown assistant",
+        "exit program", "close program", "stop program", "quit program",
+        "exit the app", "close the app", "quit the app",
+        "exit now", "quit now"
+    }
+    if cleanPrompt in exitPhrases or cleanPrompt.startswith("exit ") or cleanPrompt.startswith("quit "):
+        promptWords = cleanPrompt.split()
+        secondWord = promptWords[1] if len(promptWords) > 1 else ""
+        if secondWord and secondWord in appExecutableMap:
+            print(f"\n[ROUTER] Routing close command for application: {secondWord}")
+            return {"results": [toolMap["closeApplication"](targetName=secondWord)]}
+
+        print("\n[ROUTER] Exit command recognized directly.")
+        toolMap["closeApplication"](targetName="exit")
+        return {"results": ["[SUCCESS] Shutting down Voice Action Harness cleanly."]}
 
     startTime = time.perf_counter()
     try:
@@ -52,8 +74,6 @@ def routeAndExecute(promptText: str, minConfidence: float = 0.25) -> dict:
             return response
 
         # Step 3: Tool-specific sanity check to avoid accidental trigger on casual words
-        cleanPrompt = promptText.lower()
-        toolMap = {fn.__name__: fn for fn in allRegisteredTools}
         results = []
 
         for call in functionCalls:

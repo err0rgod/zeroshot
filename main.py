@@ -80,6 +80,12 @@ def main():
     print("[CAMERA] Launching Camera Overlay (Always on Top)...")
     startCameraOverlayThread()
 
+    # Pre-warm Needle 3 weights in background so the first voice command is instantaneous (~35ms)
+    if enableTranscription:
+        import threading
+        from NEEDLE.router import getNeedleModel
+        threading.Thread(target=getNeedleModel, daemon=True).start()
+
     listenForSpeech(onUtterance=handleSpeechUtterance)
 
 

@@ -1,6 +1,8 @@
 import ctypes
 import os
 import subprocess
+import threading
+import time
 import webbrowser
 import winsound
 from pathlib import Path
@@ -96,11 +98,22 @@ def openApplication(targetName: str) -> str:
 
 
 def closeApplication(targetName: str) -> str:
-    """Close or terminate an active desktop application on Windows.
+    """Close or terminate an active desktop application on Windows, or terminate the voice assistant.
     Args:
-        targetName: Name of the application to close (e.g. notepad, chrome, calc, task manager, terminal).
+        targetName: Name of the application to close (e.g. notepad, chrome, calc, task manager, terminal), or 'exit' / 'assistant' to shut down.
     """
     cleanName = targetName.strip().lower()
+    tokens = set(cleanName.replace("-", " ").replace("_", " ").split())
+
+    # 1. System Shutdown Handlers (Exit / Quit / Stop / Shutdown)
+    shutdownTokens = {"exit", "quit", "stop", "shutdown", "terminate", "assistant", "harness"}
+    if cleanName in ["exit", "quit", "stop", "shutdown", "bye"] or bool(tokens & shutdownTokens):
+        print("\n[SYSTEM] Exit command confirmed. Terminating Voice Action Harness cleanly...")
+        winsound.MessageBeep(winsound.MB_ICONASTERISK)
+        # 400ms pause to flush audio chime and HUD before clean exit
+        threading.Thread(target=lambda: (time.sleep(0.4), os._exit(0)), daemon=True).start()
+        return "[SUCCESS] Shutting down Voice Action Harness cleanly."
+
     target = appExecutableMap.get(cleanName, cleanName)
 
     # Don't try to taskkill websites
