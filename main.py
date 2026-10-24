@@ -11,6 +11,10 @@ if hasattr(sys.stdout, "reconfigure"):
 projectRoot = Path(__file__).resolve().parent
 load_dotenv(projectRoot / ".env")
 
+# Feature Flags (camelCase)
+# Set to False to bypass ElevenLabs STT API while developing/testing the camera overlay
+enableTranscription = False
+
 from VAD.micProcess import listenForSpeech
 from STT.sttClient import transcribeAudio
 from NEEDLE.router import routeAndExecute
@@ -22,6 +26,17 @@ def handleSpeechUtterance(audioArray, sampleRate):
     Callback triggered by VAD whenever a full spoken sentence is captured.
     Runs asynchronously on worker thread.
     """
+    if not enableTranscription:
+        durationSec = len(audioArray) / sampleRate
+        print(f"[TEST MODE] Voice captured ({durationSec:.2f}s) | STT Bypassed to save API credits.")
+        updateCameraHud(
+            status="[LISTENING]",
+            transcript=f"[TEST] Captured {durationSec:.2f}s (STT Disabled)",
+            action="Camera test mode active. Press 'S' to toggle view."
+        )
+        print("[READY] Listening...\n", flush=True)
+        return
+
     transcriptText = transcribeAudio(audioArray, sampleRate)
 
     if not transcriptText:
@@ -48,12 +63,17 @@ def main():
     print(" Voice Action Harness: VAD -> STT -> Router")
     print("==================================================")
 
-    apiKey = os.getenv("ELEVENLABS_API_KEY", "").strip()
-    if not apiKey or apiKey == "your_elevenlabs_api_key_here":
-        print("[WARNING] ELEVENLABS_API_KEY is not set in .env")
-        print("[WARNING] Please add your key to .env to enable transcription.\n")
+    if not enableTranscription:
+        print("[CONFIG] Transcription Engine: DISABLED (Camera Test Mode)")
+        print("[CONFIG] Set enableTranscription = True in main.py when ready.")
+        print("[CONFIG] Hotkey: Press 'S' on the camera window to toggle Full / Split PiP mode.\n")
     else:
-        print("[INFO] ElevenLabs STT configured.\n")
+        apiKey = os.getenv("ELEVENLABS_API_KEY", "").strip()
+        if not apiKey or apiKey == "your_elevenlabs_api_key_here":
+            print("[WARNING] ELEVENLABS_API_KEY is not set in .env")
+            print("[WARNING] Please add your key to .env to enable transcription.\n")
+        else:
+            print("[INFO] ElevenLabs STT configured.\n")
 
     # Start Always-on-Top Camera Overlay in background thread (starts in FULL mode)
     print("[CAMERA] Launching Camera Overlay (Always on Top)...")
