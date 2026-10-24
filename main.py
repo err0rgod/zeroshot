@@ -12,8 +12,8 @@ projectRoot = Path(__file__).resolve().parent
 load_dotenv(projectRoot / ".env")
 
 # Feature Flags (camelCase)
-# Set to False to bypass ElevenLabs STT API while developing/testing the camera overlay
-enableTranscription = False
+# Set to True for live voice transcription via ElevenLabs STT and tool routing
+enableTranscription = True
 
 from VAD.micProcess import listenForSpeech
 from CAMERA.cameraOverlay import startCameraOverlayThread, updateCameraHud
