@@ -68,7 +68,7 @@ def gitCommit(commitMessage: str) -> str:
 
 def gitPush(branchName: str = "main") -> str:
     """Push local commits to GitHub remote repository.
-    ONLY call when user explicitly asks to 'git push', 'push to github', or 'push to main'.
+    ONLY call when user explicitly asks to 'git push', 'push commits', or 'push to main'. Never call for opening websites or github.
     Args:
         branchName: Target branch to push (default: main).
     """

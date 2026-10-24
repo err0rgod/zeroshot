@@ -27,7 +27,7 @@ def getNeedleModel():
     return needleModel
 
 
-def routeAndExecute(promptText: str, minConfidence: float = 0.30) -> dict:
+def routeAndExecute(promptText: str, minConfidence: float = 0.25) -> dict:
     """
     Route natural language command through Needle 3.
     Uses Needle's confidence head and intent guards to automatically ignore
@@ -64,6 +64,15 @@ def routeAndExecute(promptText: str, minConfidence: float = 0.30) -> dict:
             if toolName == "gitDiff" and not any(w in cleanPrompt for w in ["diff", "changes", "modified"]):
                 print(f"[ROUTER ({latencyMs}ms)]: Ignored false match for gitDiff (confidence: {confidence:.2f})")
                 continue
+
+            # Semantic guard for git push (must contain 'push')
+            if toolName == "gitPush" and "push" not in cleanPrompt:
+                if any(w in cleanPrompt for w in ["open", "launch", "goto", "visit"]):
+                    toolName = "openApplication"
+                    arguments = {"targetName": "github"}
+                else:
+                    print(f"[ROUTER ({latencyMs}ms)]: Ignored false match for gitPush without 'push' keyword")
+                    continue
 
             targetTool = toolMap.get(toolName)
             if targetTool:

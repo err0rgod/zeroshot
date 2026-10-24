@@ -7,92 +7,123 @@ from pathlib import Path
 
 projectRoot = str(Path(__file__).resolve().parent.parent)
 
-# Map common spoken application names to executable or target command
+# Comprehensive map of desktop software and popular web applications
 appExecutableMap = {
+    # Windows Desktop Applications
     "chrome": "chrome",
     "google chrome": "chrome",
     "browser": "chrome",
-    "notepad": "notepad",
-    "calculator": "calc",
-    "calc": "calc",
-    "terminal": "wt",
-    "powershell": "powershell",
-    "command prompt": "cmd",
-    "cmd": "cmd",
+    "notepad": "notepad.exe",
+    "calculator": "calc.exe",
+    "calc": "calc.exe",
+    "terminal": "wt.exe",
+    "windows terminal": "wt.exe",
+    "powershell": "powershell.exe",
+    "command prompt": "cmd.exe",
+    "cmd": "cmd.exe",
     "code": "code",
     "vs code": "code",
     "vscode": "code",
-    "explorer": "explorer",
-    "file explorer": "explorer",
-    "files": "explorer",
+    "explorer": "explorer.exe",
+    "file explorer": "explorer.exe",
+    "files": "explorer.exe",
     "task manager": "taskmgr.exe",
     "taskmanager": "taskmgr.exe",
     "taskmgr": "taskmgr.exe",
     "tasks": "taskmgr.exe",
     "spotify": "spotify",
-    "paint": "mspaint",
+    "paint": "mspaint.exe",
+
+    # AI Developer Agents
     "claude": "claude",
     "claude code": "claude",
     "agy": "agy",
     "antigravity": "agy",
+
+    # Popular Web Applications (Direct HTTPS destinations)
+    "github": "https://www.github.com",
+    "youtube": "https://www.youtube.com",
+    "google": "https://www.google.com",
+    "twitter": "https://www.x.com",
+    "x": "https://www.x.com",
+    "reddit": "https://www.reddit.com",
+    "linkedin": "https://www.linkedin.com",
+    "gmail": "https://mail.google.com",
 }
 
 
-def launchApplication(appName: str) -> str:
-    """Launch or open desktop applications and developer tools on Windows (e.g. task manager, chrome, notepad, calculator, claude, agy, terminal, explorer).
+def openApplication(targetName: str) -> str:
+    """Open or launch any desktop application, software, or website on Windows (e.g. github, youtube, notepad, terminal, task manager, chrome, calc, twitter, claude, agy).
     Args:
-        appName: Common name of the application to launch (e.g. task manager, chrome, notepad, calc, claude, agy).
+        targetName: Name of the application or website to open (e.g. github, youtube, notepad, terminal, task manager).
     """
-    cleanName = appName.strip().lower()
+    cleanName = targetName.strip().lower()
     target = appExecutableMap.get(cleanName, cleanName)
 
     try:
-        # 1. AI CLI tools need an interactive terminal session
+        # 1. Web Applications & URLs
+        if target.startswith("http://") or target.startswith("https://"):
+            webbrowser.open(target)
+            winsound.MessageBeep(winsound.MB_OK)
+            return f"[SUCCESS] Opened website: {target}"
+
+        if any(target.endswith(ext) for ext in [".com", ".org", ".net", ".io", ".dev", ".ai", ".in"]):
+            url = target if target.startswith("http") else "https://" + target
+            webbrowser.open(url)
+            winsound.MessageBeep(winsound.MB_OK)
+            return f"[SUCCESS] Opened URL: {url}"
+
+        # 2. AI CLI Tools (launch in dedicated terminal window)
         if target in ["claude", "agy"]:
             cmdString = f'start cmd /k "cd /d {projectRoot} && {target}"'
             subprocess.Popen(cmdString, shell=True)
             winsound.MessageBeep(winsound.MB_OK)
             return f"[SUCCESS] Spawned {target.upper()} terminal session in workspace."
 
-        # 2. Windows System apps (like Task Manager): use ShellExecuteW to bypass UAC redirection
+        # 3. Desktop Applications (ShellExecuteW handles UAC and desktop apps cleanly)
         res = ctypes.windll.shell32.ShellExecuteW(None, "open", target, None, None, 1)
         if res > 32:
             winsound.MessageBeep(winsound.MB_OK)
-            return f"[SUCCESS] Opened application: {appName}"
+            return f"[SUCCESS] Opened application: {targetName}"
 
-        # 3. Fallback to shell start
+        # Fallback to shell start
         subprocess.Popen(f"start {target}", shell=True)
         winsound.MessageBeep(winsound.MB_OK)
-        return f"[SUCCESS] Opened application: {appName}"
+        return f"[SUCCESS] Opened application: {targetName}"
 
     except Exception as error:
-        return f"[ERROR] Failed to open {appName}: {error}"
+        return f"[ERROR] Failed to open {targetName}: {error}"
 
 
-def closeApplication(appName: str) -> str:
+def closeApplication(targetName: str) -> str:
     """Close or terminate an active desktop application on Windows.
     Args:
-        appName: Name of the application to close (e.g. notepad, chrome, calc, task manager).
+        targetName: Name of the application to close (e.g. notepad, chrome, calc, task manager, terminal).
     """
-    cleanName = appName.strip().lower()
-    targetName = appExecutableMap.get(cleanName, cleanName)
-    if not targetName.endswith(".exe"):
-        targetName += ".exe"
+    cleanName = targetName.strip().lower()
+    target = appExecutableMap.get(cleanName, cleanName)
+
+    # Don't try to taskkill websites
+    if target.startswith("http"):
+        return f"[NOTICE] {targetName} is a website in your browser. Close the browser tab manually."
+
+    if not target.endswith(".exe"):
+        target += ".exe"
 
     try:
         result = subprocess.run(
-            ["taskkill", "/f", "/im", targetName],
+            ["taskkill", "/f", "/im", target],
             capture_output=True,
             text=True,
         )
         if result.returncode == 0:
             winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
-            return f"[SUCCESS] Closed application: {appName}"
+            return f"[SUCCESS] Closed application: {targetName}"
         else:
             reason = result.stderr.strip() or "Process not found."
-            return f"[WARNING] Could not close {appName} ({reason})."
+            return f"[WARNING] Could not close {targetName} ({reason})."
     except Exception as error:
-        return f"[ERROR] Failed to terminate {appName}: {error}"
+        return f"[ERROR] Failed to terminate {targetName}: {error}"
 
 
 def searchWeb(query: str) -> str:
@@ -109,26 +140,9 @@ def searchWeb(query: str) -> str:
         return f"[ERROR] Failed to search web: {error}"
 
 
-def openUrl(url: str) -> str:
-    """Open a website URL in the browser ONLY when the prompt includes a web address or domain (e.g. .com, .org, youtube, github, twitter). Never call for desktop applications.
-    Args:
-        url: Full web address or domain (e.g. https://github.com, youtube.com).
-    """
-    try:
-        cleanUrl = url.strip()
-        if not cleanUrl.startswith("http://") and not cleanUrl.startswith("https://"):
-            cleanUrl = "https://" + cleanUrl
-        webbrowser.open(cleanUrl)
-        winsound.MessageBeep(winsound.MB_OK)
-        return f"[SUCCESS] Opened URL: {cleanUrl}"
-    except Exception as error:
-        return f"[ERROR] Failed to open URL: {error}"
-
-
 # Export list of registered tool functions for Cactus Needle 3
 registeredTools = [
-    launchApplication,
+    openApplication,
     closeApplication,
     searchWeb,
-    openUrl,
 ]
