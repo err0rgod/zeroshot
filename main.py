@@ -14,6 +14,7 @@ load_dotenv(projectRoot / ".env")
 from VAD.micProcess import listenForSpeech
 from STT.sttClient import transcribeAudio
 from NEEDLE.router import routeAndExecute
+from CAMERA.cameraOverlay import startCameraOverlayThread, updateCameraHud
 
 
 def handleSpeechUtterance(audioArray, sampleRate):
@@ -24,10 +25,21 @@ def handleSpeechUtterance(audioArray, sampleRate):
     transcriptText = transcribeAudio(audioArray, sampleRate)
 
     if not transcriptText:
+        updateCameraHud(status="[LISTENING]", transcript="(no speech detected)")
         return
 
+    updateCameraHud(status="[ROUTING]", transcript=transcriptText)
+
     # Route command through Cactus Needle 3 Edge Router
-    routeAndExecute(transcriptText)
+    response = routeAndExecute(transcriptText)
+    results = response.get("results", [])
+
+    if results:
+        actionSummary = str(results[0])
+    else:
+        actionSummary = response.get("reasoning", "No tool executed")
+
+    updateCameraHud(status="[LISTENING]", action=actionSummary)
     print("[READY] Listening...\n", flush=True)
 
 
@@ -42,6 +54,10 @@ def main():
         print("[WARNING] Please add your key to .env to enable transcription.\n")
     else:
         print("[INFO] ElevenLabs STT configured.\n")
+
+    # Start Always-on-Top Camera Overlay in background thread (starts in FULL mode)
+    print("[CAMERA] Launching Camera Overlay (Always on Top)...")
+    startCameraOverlayThread()
 
     listenForSpeech(onUtterance=handleSpeechUtterance)
 

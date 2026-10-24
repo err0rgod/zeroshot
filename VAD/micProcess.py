@@ -16,6 +16,7 @@ if str(projectRoot) not in sys.path:
     sys.path.append(str(projectRoot))
 
 from STT.sttClient import transcribeAudio
+from CAMERA.cameraOverlay import updateCameraHud
 
 # Audio Configuration (camelCase)
 sampleRate = 16000
@@ -96,6 +97,7 @@ def listenForSpeech(onUtterance=None):
                         speechBuffer = list(prePadBuffer)
                         silenceCounter = 0
                         print("\n[VOICE DETECTED] Recording...", flush=True)
+                        updateCameraHud(status="[RECORDING]")
 
                     speechBuffer.append(audioChunk)
                     silenceCounter = 0
@@ -118,9 +120,12 @@ def listenForSpeech(onUtterance=None):
                                     f"[VOICE COMPLETE] Captured {durationSec:.2f}s audio. Processing...",
                                     flush=True,
                                 )
+                                updateCameraHud(status="[PROCESSING]")
 
                                 if onUtterance:
                                     workerPool.submit(onUtterance, completeAudio, sampleRate)
+                            else:
+                                updateCameraHud(status="[LISTENING]")
 
                             speechBuffer = []
                     else:

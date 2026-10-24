@@ -1,0 +1,226 @@
+import threading
+import time
+import tkinter as tk
+from pathlib import Path
+import cv2
+from PIL import Image, ImageTk
+
+# Global reference to overlay instance for external tool calls
+activeOverlayInstance = None
+
+
+class CameraOverlay:
+    def __init__(self):
+        self.currentMode = "full"  # "full" or "split"
+        self.statusText = "[LISTENING]"
+        self.transcriptText = "Speak a command..."
+        self.actionText = "System ready."
+
+        self.root = None
+        self.videoLabel = None
+        self.statusLabel = None
+        self.transcriptLabel = None
+        self.actionLabel = None
+
+        self.cap = None
+        self.isRunning = False
+        self.lock = threading.Lock()
+
+    def initializeUi(self):
+        """Construct the Tkinter window and HUD elements."""
+        self.root = tk.Tk()
+        self.root.title("Voice Action Camera Overlay")
+        self.root.configure(bg="#0f111a")
+        self.root.wm_attributes("-topmost", True)
+
+        self.screenWidth = self.root.winfo_screenwidth()
+        self.screenHeight = self.root.winfo_screenheight()
+
+        # Video container
+        self.videoContainer = tk.Frame(self.root, bg="#0f111a")
+        self.videoContainer.pack(fill=tk.BOTH, expand=True)
+
+        self.videoLabel = tk.Label(self.videoContainer, bg="#000000")
+        self.videoLabel.pack(fill=tk.BOTH, expand=True)
+
+        # Bottom HUD Panel (3 live metric lines)
+        self.hudPanel = tk.Frame(self.root, bg="#161925", padx=10, pady=6)
+        self.hudPanel.pack(fill=tk.X, side=tk.BOTTOM)
+
+        self.statusLabel = tk.Label(
+            self.hudPanel,
+            text=f"STATUS: {self.statusText}",
+            font=("Consolas", 10, "bold"),
+            fg="#00e676",
+            bg="#161925",
+            anchor="w",
+        )
+        self.statusLabel.pack(fill=tk.X)
+
+        self.transcriptLabel = tk.Label(
+            self.hudPanel,
+            text=f"TRANSCRIPT: {self.transcriptText}",
+            font=("Segoe UI", 9),
+            fg="#ffffff",
+            bg="#161925",
+            anchor="w",
+        )
+        self.transcriptLabel.pack(fill=tk.X)
+
+        self.actionLabel = tk.Label(
+            self.hudPanel,
+            text=f"ACTION: {self.actionText}",
+            font=("Segoe UI", 9, "italic"),
+            fg="#00e5ff",
+            bg="#161925",
+            anchor="w",
+        )
+        self.actionLabel.pack(fill=tk.X)
+
+        # Apply initial geometry
+        self.applyModeGeometry()
+
+        # Bind manual hotkey toggle: press 's' on the window to toggle split/full
+        self.root.bind("<Key-s>", lambda event: self.toggleMode())
+        self.root.bind("<Key-S>", lambda event: self.toggleMode())
+
+        # Start camera capture
+        self.cap = cv2.VideoCapture(0)
+        self.isRunning = True
+
+        # Kick off render loop
+        self.updateFrame()
+
+    def applyModeGeometry(self):
+        """Update window geometry and position based on current mode."""
+        if self.currentMode == "full":
+            # Fullscreen intro mode: covers full screen
+            self.root.geometry(f"{self.screenWidth}x{self.screenHeight}+0+0")
+        else:
+            # Split PiP mode: docked in bottom-right corner
+            pipWidth = 420
+            pipHeight = 320
+            posX = self.screenWidth - pipWidth - 25
+            posY = self.screenHeight - pipHeight - 65
+            self.root.geometry(f"{pipWidth}x{pipHeight}+{posX}+{posY}")
+
+    def toggleMode(self, targetMode=None):
+        """Thread-safe toggle between 'full' and 'split' mode."""
+        def callback():
+            if targetMode:
+                self.currentMode = targetMode
+            else:
+                self.currentMode = "split" if self.currentMode == "full" else "full"
+            self.applyModeGeometry()
+            print(f"[CAMERA OVERLAY] View mode switched to: {self.currentMode.upper()}")
+
+        if self.root:
+            self.root.after_idle(callback)
+
+    def updateHud(self, status=None, transcript=None, action=None):
+        """Thread-safe update of the 3-line HUD metrics."""
+        def callback():
+            if status is not None:
+                self.statusText = status
+                # Color code status
+                color = "#00e676"  # green
+                if "RECORDING" in status:
+                    color = "#ff1744"  # red
+                elif "PROCESSING" in status or "ROUTING" in status:
+                    color = "#ffd600"  # yellow
+                self.statusLabel.config(text=f"STATUS: {status}", fg=color)
+
+            if transcript is not None:
+                self.transcriptText = transcript
+                # Truncate if exceptionally long
+                display = transcript if len(transcript) <= 65 else transcript[:62] + "..."
+                self.transcriptLabel.config(text=f"TRANSCRIPT: \"{display}\"")
+
+            if action is not None:
+                self.actionText = action
+                display = action if len(action) <= 65 else action[:62] + "..."
+                self.actionLabel.config(text=f"ACTION: {display}")
+
+        if self.root:
+            self.root.after_idle(callback)
+
+    def updateFrame(self):
+        """Capture webcam frame and render to Tkinter canvas."""
+        if not self.isRunning:
+            return
+
+        if self.cap and self.cap.isOpened():
+            ret, frame = self.cap.read()
+            if ret:
+                # Mirror horizontally for natural webcam feel
+                frame = cv2.flip(frame, 1)
+
+                # Determine target frame dimensions based on mode
+                if self.currentMode == "full":
+                    targetW = self.screenWidth
+                    targetH = self.screenHeight - 85  # Deduct HUD height
+                else:
+                    targetW = 420
+                    targetH = 240
+
+                resized = cv2.resize(frame, (targetW, targetH), interpolation=cv2.INTER_AREA)
+                rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(rgb)
+                imgTk = ImageTk.PhotoImage(image=img)
+
+                self.videoLabel.imgTk = imgTk
+                self.videoLabel.configure(image=imgTk)
+
+        # Schedule next frame in ~33ms (~30 FPS)
+        if self.root and self.isRunning:
+            self.root.after(33, self.updateFrame)
+
+    def start(self):
+        """Start the Tkinter event loop."""
+        self.initializeUi()
+        self.root.mainloop()
+        self.cleanup()
+
+    def cleanup(self):
+        """Release camera hardware resources."""
+        self.isRunning = False
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+
+
+def startCameraOverlayThread():
+    """Boot camera overlay in a dedicated background daemon thread."""
+    global activeOverlayInstance
+    activeOverlayInstance = CameraOverlay()
+
+    cameraThread = threading.Thread(target=activeOverlayInstance.start, daemon=True)
+    cameraThread.start()
+    return activeOverlayInstance
+
+
+def getCameraOverlay() -> CameraOverlay:
+    """Retrieve active overlay instance."""
+    global activeOverlayInstance
+    return activeOverlayInstance
+
+
+def updateCameraHud(status=None, transcript=None, action=None):
+    """Global helper to update camera HUD from anywhere in pipeline."""
+    global activeOverlayInstance
+    if activeOverlayInstance:
+        activeOverlayInstance.updateHud(status=status, transcript=transcript, action=action)
+
+
+def toggleCameraView(mode: str = "split") -> str:
+    """Voice tool to switch camera view between 'split' (bottom-right PiP) and 'full' (fullscreen)."""
+    global activeOverlayInstance
+    if activeOverlayInstance:
+        target = "split" if "split" in mode.lower() else "full"
+        activeOverlayInstance.toggleMode(target)
+        return f"[SUCCESS] Switched camera to {target.upper()} mode."
+    return "[NOTICE] Camera overlay is not running."
+
+
+if __name__ == "__main__":
+    overlay = CameraOverlay()
+    overlay.start()
